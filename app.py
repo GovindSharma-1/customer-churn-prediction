@@ -8,7 +8,15 @@ import pandas as pd
 import seaborn as sns
 import streamlit as st
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
@@ -135,6 +143,12 @@ def inject_custom_css() -> None:
 @dataclass
 class ModelResults:
     accuracy: float
+    precision: float
+    recall: float
+    f1: float
+    roc_auc: float
+    train_size: int
+    test_size: int
     confusion_matrix_data: np.ndarray
     report: str
     feature_importance: pd.Series
@@ -248,14 +262,25 @@ class ChurnPredictor:
         self.model.fit(self.X_train, self.y_train)
 
     def evaluate_model(self) -> ModelResults:
-        """Evaluate model with accuracy, confusion matrix, and feature importance."""
+        """Evaluate model with classification metrics, confusion matrix, and feature importance."""
         if self.model is None or self.X_test is None or self.y_test is None:
             self.train_model()
 
         y_pred = self.model.predict(self.X_test)
+        y_proba = self.model.predict_proba(self.X_test)[:, 1]
+
         accuracy = accuracy_score(self.y_test, y_pred)
+        precision = precision_score(self.y_test, y_pred, zero_division=0)
+        recall = recall_score(self.y_test, y_pred, zero_division=0)
+        f1 = f1_score(self.y_test, y_pred, zero_division=0)
+        roc_auc = roc_auc_score(self.y_test, y_proba)
         cm = confusion_matrix(self.y_test, y_pred)
-        report = classification_report(self.y_test, y_pred, zero_division=0)
+        report = classification_report(
+            self.y_test,
+            y_pred,
+            target_names=["No Churn", "Churn"],
+            zero_division=0,
+        )
 
         feature_importance = pd.Series(
             self.model.feature_importances_,
@@ -264,6 +289,12 @@ class ChurnPredictor:
 
         return ModelResults(
             accuracy=accuracy,
+            precision=precision,
+            recall=recall,
+            f1=f1,
+            roc_auc=roc_auc,
+            train_size=len(self.X_train),
+            test_size=len(self.X_test),
             confusion_matrix_data=cm,
             report=report,
             feature_importance=feature_importance,
@@ -391,9 +422,17 @@ def render_model_tab(predictor: ChurnPredictor) -> None:
 
     if predictor.model is not None:
         results = predictor.evaluate_model()
-        col1, col2 = st.columns(2)
+        col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("Accuracy", f"{results.accuracy:.2%}")
-        col2.metric("Train Rows", f"{len(predictor.X_train):,}")
+        col2.metric("Precision", f"{results.precision:.2%}")
+        col3.metric("Recall", f"{results.recall:.2%}")
+        col4.metric("F1 Score", f"{results.f1:.2%}")
+        col5.metric("ROC-AUC", f"{results.roc_auc:.2%}")
+
+        st.caption(
+            f"Train set: {results.train_size:,} rows | Test set: {results.test_size:,} rows "
+            f"(80/20 stratified split)"
+        )
 
         st.markdown("#### Confusion Matrix")
         fig_cm, ax_cm = plt.subplots(figsize=(5, 4))
